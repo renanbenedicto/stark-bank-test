@@ -1,0 +1,61 @@
+config {
+  database: "rbp-tech",
+  schema: "stark_bank",
+  name: "view_monthly_conversion",
+  type: "view",
+  description: "Analysis of payment conversion rates, overdue payment evolution, and the decisive impact of validity windows and ticket sizes.",
+  tags: ["replace_daily"]
+}
+
+WITH invoice_base AS (
+  SELECT * FROM `rbp-tech.stark_bank.view_invoices_analytical`
+)
+
+SELECT
+  created_year_month,
+  validity_window_tier,
+  amount_bracket,
+
+  -- Volumetria e Valores de Faturas Emitidas
+  COUNT(invoiceId) AS total_invoices_issued,
+  ROUND(SUM(amount_created), 2) AS total_amount_issued,
+
+  -- Pagamentos Realizados
+  COUNTIF(is_paid) AS total_invoices_paid,
+  ROUND(SUM(amount_paid), 2) AS total_amount_paid,
+  ROUND(COUNTIF(is_paid) / COUNT(invoiceId) * 100, 2) AS payment_conversion_rate_pct,
+
+  -- Faturas Pagas no Prazo (On-Time)
+  COUNTIF(payment_status = 'Pago no Prazo (On-Time)') AS invoices_paid_on_time,
+  ROUND(
+    SAFE_DIVIDE(COUNTIF(payment_status = 'Pago no Prazo (On-Time)'), COUNTIF(is_paid)) * 100, 2
+  ) AS on_time_rate_pct_of_paid,
+
+  -- Faturas Pagas em Atraso (Overdue)
+  COUNTIF(payment_status = 'Pago em Atraso (Overdue)') AS invoices_paid_overdue,
+  ROUND(
+    SAFE_DIVIDE(COUNTIF(payment_status = 'Pago em Atraso (Overdue)'), COUNTIF(is_paid)) * 100, 2
+  ) AS overdue_rate_pct_of_paid,
+  ROUND(
+    SAFE_DIVIDE(COUNTIF(payment_status = 'Pago em Atraso (Overdue)'), COUNT(invoiceId)) * 100, 2
+  ) AS overdue_rate_pct_of_total_issued,
+
+  -- Faturas Não Pagas (Expiradas / Canceladas)
+  COUNTIF(NOT is_paid) AS invoices_never_paid,
+  ROUND(
+    SAFE_DIVIDE(COUNTIF(NOT is_paid), COUNT(invoiceId)) * 100, 2
+  ) AS never_paid_rate_pct,
+
+  -- Tempos de Pagamento
+  ROUND(AVG(CASE WHEN is_paid THEN minutes_to_pay END), 2) AS avg_minutes_to_pay,
+  ROUND(AVG(CASE WHEN is_paid THEN credit_lag_seconds END), 2) AS avg_credit_lag_seconds,
+
+  -- Reversões
+  COUNTIF(is_reversed) AS total_reversals,
+  ROUND(
+    SAFE_DIVIDE(COUNTIF(is_reversed), COUNTIF(is_paid)) * 100, 4
+  ) AS reversal_rate_pct_of_paid
+
+FROM invoice_base
+GROUP BY 1, 2, 3
+ORDER BY created_year_month, validity_window_tier, amount_bracket

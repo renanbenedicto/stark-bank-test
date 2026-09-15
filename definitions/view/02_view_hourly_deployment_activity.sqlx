@@ -1,0 +1,92 @@
+config {
+  database: "rbp-tech",
+  schema: "stark_bank",
+  name: "view_hourly_deployment_activity",
+  type: "view",
+  description: "Analysis of operational activity by hour and day of week (BRT) to determine the optimal low-risk deployment window for engineering.",
+  tags: ["replace_daily"]
+}
+
+WITH parsed_logs AS (
+  SELECT
+    logId,
+    type,
+    amount,
+    -- Converte timestamp do log para o fuso horário oficial de Brasília (BRT / UTC-3)
+    DATETIME(SAFE_CAST(logCreated AS TIMESTAMP), "America/Sao_Paulo") AS logCreated_brt
+  FROM
+    `rbp-tech.stark_bank.invoice_logs_raw`
+),
+
+hourly_day_metrics AS (
+  SELECT
+    EXTRACT(DAYOFWEEK FROM logCreated_brt) AS day_of_week_num, -- 1=Domingo, 2=Segunda, ..., 7=Sábado
+    CASE EXTRACT(DAYOFWEEK FROM logCreated_brt)
+      WHEN 1 THEN '1 - Domingo'
+      WHEN 2 THEN '2 - Segunda-feira'
+      WHEN 3 THEN '3 - Terça-feira'
+      WHEN 4 THEN '4 - Quarta-feira'
+      WHEN 5 THEN '5 - Quinta-feira'
+      WHEN 6 THEN '6 - Sexta-feira'
+      WHEN 7 THEN '7 - Sábado'
+    END AS day_of_week_name,
+    CASE
+      WHEN EXTRACT(DAYOFWEEK FROM logCreated_brt) IN (1, 7) THEN 'Fim de Semana'
+      ELSE 'Dia Útil'
+    END AS day_type,
+    EXTRACT(HOUR FROM logCreated_brt) AS hour_brt,
+    
+    -- Volumetria total de eventos
+    COUNT(logId) AS total_logs,
+    
+    -- Volumetria por tipo de evento sensível
+    COUNTIF(type = 'created') AS created_logs,
+    COUNTIF(type = 'paid') AS paid_logs,
+    COUNTIF(type = 'credited') AS credited_logs,
+    COUNTIF(type = 'overdue') AS overdue_logs,
+    COUNTIF(type = 'expired') AS expired_logs,
+    COUNTIF(type = 'reversed') AS reversed_logs,
+
+    -- Volume financeiro transacionado na hora
+    COALESCE(SUM(CASE WHEN type = 'paid' THEN amount END), 0) AS volume_financeiro_pago
+    
+  FROM parsed_logs
+  GROUP BY 1, 2, 3, 4
+),
+
+total_volume AS (
+  SELECT COUNT(*) AS total_all_logs FROM parsed_logs
+)
+
+SELECT
+  m.day_of_week_num,
+  m.day_of_week_name,
+  m.day_type,
+  m.hour_brt,
+  FORMAT('%02d:00', m.hour_brt) AS hour_formatted_brt,
+  m.total_logs,
+  m.created_logs,
+  m.paid_logs,
+  m.credited_logs,
+  m.overdue_logs,
+  m.expired_logs,
+  m.reversed_logs,
+  m.volume_financeiro_pago,
+  
+  -- Percentual do tráfego total
+  ROUND((m.total_logs / t.total_all_logs) * 100, 4) AS pct_of_total_traffic,
+  
+  -- Ranking de menor atividade (1 = menor tráfego absoluto da semana)
+  DENSE_RANK() OVER (ORDER BY m.total_logs ASC) AS quietest_rank_overall,
+  
+  -- Flag da janela recomendada (madrugadas entre 01:00 e 03:00 BRT)
+  CASE
+    WHEN m.hour_brt IN (1, 2) THEN 'Janela Ideal (Mínimo Tráfego: 01h-03h BRT)'
+    WHEN m.hour_brt IN (0, 3) THEN 'Janela Aceitável (Baixo Tráfego: 00h-04h BRT)'
+    WHEN m.hour_brt BETWEEN 9 AND 19 THEN 'Janela Crítica (Horário Comercial / Pico)'
+    ELSE 'Tráfego Moderado'
+  END AS deployment_recommendation
+
+FROM hourly_day_metrics m
+CROSS JOIN total_volume t
+ORDER BY m.day_of_week_num, m.hour_brt

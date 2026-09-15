@@ -1,0 +1,75 @@
+config {
+  database: "rbp-tech",
+  schema: "stark_bank",
+  name: "view_reversals_analysis",
+  type: "view",
+  description: "Description: Detailed analysis of Pix Invoice reversals, comparing partial vs total reversals, duration from payment, and ticket risk factors.",
+  tags: ["replace_daily"]
+}
+
+WITH reversed_base AS (
+  SELECT
+    invoiceId,
+    amount_created,
+    amount_paid,
+    amount_reversed,
+    amount_bracket,
+    created_year_month,
+    created_date_brt,
+    reversal_type,
+    is_voided,
+    total_reversals_count,
+    logCreated_paid_utc,
+    logCreated_paid_brt,
+    logCreated_reversed_utc,
+    seconds_to_reverse,
+    minutes_to_reverse,
+    hours_to_reverse,
+    
+    -- Faixa de tempo até o estorno
+    CASE
+      WHEN seconds_to_reverse <= 300 THEN '1. Imediato (<= 5 min)'
+      WHEN seconds_to_reverse <= 3600 THEN '2. Rápido (5 min a 1 hora)'
+      WHEN seconds_to_reverse <= 86400 THEN '3. Mesmo Dia (1 a 24 horas)'
+      WHEN seconds_to_reverse <= 7 * 86400 THEN '4. Na Semana (1 a 7 dias)'
+      ELSE '5. Longo Prazo (> 7 dias)'
+    END AS reversal_duration_tier,
+
+    -- Percentual estornado do valor original
+    CASE
+      WHEN is_voided THEN 100.0
+      WHEN amount_created > 0 AND amount_reversed > 0 THEN ROUND((amount_reversed / amount_created) * 100, 2)
+      ELSE 100.0
+    END AS pct_amount_reversed
+
+  FROM `rbp-tech.stark_bank.view_invoices_analytical`
+  WHERE is_reversed = TRUE
+)
+
+SELECT
+  invoiceId,
+  created_year_month,
+  created_date_brt,
+  reversal_type,
+  is_voided,
+  total_reversals_count,
+  amount_created,
+  amount_paid,
+  amount_reversed,
+  pct_amount_reversed,
+  amount_bracket,
+  logCreated_paid_brt,
+  logCreated_reversed_utc,
+  seconds_to_reverse,
+  minutes_to_reverse,
+  hours_to_reverse,
+  reversal_duration_tier,
+  
+  -- Contexto operacional: Estorno automático vs manual/disputa
+  CASE
+    WHEN minutes_to_reverse <= 60 THEN 'Estorno Automático / Imediato (Sistema/Webhook)'
+    ELSE 'Estorno Manual / Contestação Comercial'
+  END AS reversal_operational_nature
+
+FROM reversed_base
+ORDER BY seconds_to_reverse ASC

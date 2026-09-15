@@ -1,0 +1,192 @@
+config {
+  database: "rbp-tech",
+  schema: "stark_bank",
+  name: "view_invoices_analytical",
+  type: "view",
+  description: "Master analytical view aggregating each invoice's full lifecycle from raw log entries into a single denormalized record.",
+  tags: ["replace_daily"]
+}
+
+
+WITH raw_logs AS (
+  SELECT
+    invoiceId,
+    logId,
+    type,
+    amount,
+    -- Normaliza campos de data para TIMESTAMP
+    SAFE_CAST(invoiceCreated AS TIMESTAMP) AS invoiceCreated,
+    SAFE_CAST(logCreated AS TIMESTAMP) AS logCreated,
+    SAFE_CAST(invoiceDue AS TIMESTAMP) AS invoiceDue,
+    -- Converte para o fuso horário oficial de Brasília (America/Sao_Paulo - BRT / UTC-3)
+    DATETIME(SAFE_CAST(invoiceCreated AS TIMESTAMP), "America/Sao_Paulo") AS invoiceCreated_brt,
+    DATETIME(SAFE_CAST(logCreated AS TIMESTAMP), "America/Sao_Paulo") AS logCreated_brt,
+    DATETIME(SAFE_CAST(invoiceDue AS TIMESTAMP), "America/Sao_Paulo") AS invoiceDue_brt
+  FROM
+    `rbp-tech.stark_bank.invoice_logs_raw`
+),
+
+invoice_aggregates AS (
+  SELECT
+    invoiceId,
+    
+    -- Metadados de Criação e Vencimento da Fatura
+    MIN(invoiceCreated) AS invoiceCreated_utc,
+    MIN(invoiceCreated_brt) AS invoiceCreated_brt,
+    MIN(invoiceDue) AS invoiceDue_utc,
+    MIN(invoiceDue_brt) AS invoiceDue_brt,
+    
+    -- Valor emitido (considerando log 'created' prioritariamente, senão o primeiro valor registrado)
+    COALESCE(
+      ANY_VALUE(CASE WHEN type = 'created' THEN amount END),
+      ANY_VALUE(amount)
+    ) AS amount_created,
+
+    -- Valor pago (caso exista log 'paid')
+    MAX(CASE WHEN type = 'paid' THEN amount END) AS amount_paid,
+
+    -- Valor estornado (caso exista log 'reversed' com montante registrado)
+    MAX(CASE WHEN type = 'reversed' THEN amount END) AS amount_reversed,
+
+    -- Ocorrência de cada status no ciclo de vida
+    COUNTIF(type = 'created') > 0 AS has_created,
+    COUNTIF(type = 'paid') > 0 AS is_paid,
+    COUNTIF(type = 'credited') > 0 AS is_credited,
+    COUNTIF(type = 'overdue') > 0 AS has_overdue_log,
+    COUNTIF(type = 'expired') > 0 AS is_expired,
+    COUNTIF(type = 'canceled') > 0 AS is_canceled,
+    COUNTIF(type = 'reversing') > 0 AS has_reversing,
+    COUNTIF(type = 'reversed') > 0 AS is_reversed,
+    COUNTIF(type = 'voided') > 0 AS is_voided,
+    COUNTIF(type = 'updated') > 0 AS is_updated,
+
+    -- Timestamps específicos dos principais eventos
+    MIN(CASE WHEN type = 'created' THEN logCreated END) AS logCreated_created_utc,
+    MIN(CASE WHEN type = 'paid' THEN logCreated END) AS logCreated_paid_utc,
+    MIN(CASE WHEN type = 'paid' THEN logCreated_brt END) AS logCreated_paid_brt,
+    MIN(CASE WHEN type = 'credited' THEN logCreated END) AS logCreated_credited_utc,
+    MIN(CASE WHEN type = 'overdue' THEN logCreated END) AS logCreated_overdue_utc,
+    MIN(CASE WHEN type = 'expired' THEN logCreated END) AS logCreated_expired_utc,
+    MIN(CASE WHEN type = 'reversing' THEN logCreated END) AS logCreated_reversing_utc,
+    MIN(CASE WHEN type = 'reversed' THEN logCreated END) AS logCreated_reversed_utc,
+    MIN(CASE WHEN type = 'voided' THEN logCreated END) AS logCreated_voided_utc,
+
+    -- Contagem total de logs por fatura
+    COUNT(logId) AS total_logs_count,
+    COUNTIF(type = 'reversed') AS total_reversals_count
+
+  FROM raw_logs
+  GROUP BY invoiceId
+)
+
+SELECT
+  invoiceId,
+  invoiceCreated_utc,
+  invoiceCreated_brt,
+  invoiceDue_utc,
+  invoiceDue_brt,
+
+  -- Atributos de Tempo de Criação
+  EXTRACT(DATE FROM invoiceCreated_brt) AS created_date_brt,
+  FORMAT_DATETIME('%Y-%m', invoiceCreated_brt) AS created_year_month,
+  EXTRACT(HOUR FROM invoiceCreated_brt) AS created_hour_brt,
+  FORMAT_DATETIME('%A', invoiceCreated_brt) AS created_day_of_week_en,
+  CASE EXTRACT(DAYOFWEEK FROM invoiceCreated_brt)
+    WHEN 1 THEN 'Domingo'
+    WHEN 2 THEN 'Segunda-feira'
+    WHEN 3 THEN 'Terça-feira'
+    WHEN 4 THEN 'Quarta-feira'
+    WHEN 5 THEN 'Quinta-feira'
+    WHEN 6 THEN 'Sexta-feira'
+    WHEN 7 THEN 'Sábado'
+  END AS created_day_of_week_pt,
+  CASE 
+    WHEN EXTRACT(DAYOFWEEK FROM invoiceCreated_brt) IN (1, 7) THEN 'Fim de Semana'
+    ELSE 'Dia Útil'
+  END AS created_weekday_type,
+
+  -- Valores Financeiros
+  amount_created,
+  amount_paid,
+  amount_reversed,
+  CASE
+    WHEN amount_created = 0 THEN '0 (Aberto / Dinâmico)'
+    WHEN amount_created <= 25 THEN 'R$ 0 - 25'
+    WHEN amount_created <= 50 THEN 'R$ 25 - 50'
+    WHEN amount_created <= 100 THEN 'R$ 50 - 100'
+    WHEN amount_created <= 250 THEN 'R$ 100 - 250'
+    WHEN amount_created <= 500 THEN 'R$ 250 - 500'
+    WHEN amount_created <= 1000 THEN 'R$ 500 - 1.000'
+    ELSE 'Acima de R$ 1.000'
+  END AS amount_bracket,
+
+  -- Janela de Validade da Fatura (em segundos, minutos e categoria)
+  TIMESTAMP_DIFF(invoiceDue_utc, invoiceCreated_utc, SECOND) AS validity_window_seconds,
+  TIMESTAMP_DIFF(invoiceDue_utc, invoiceCreated_utc, SECOND) / 60.0 AS validity_window_minutes,
+  CASE
+    WHEN TIMESTAMP_DIFF(invoiceDue_utc, invoiceCreated_utc, SECOND) <= 90 THEN 'Ultra-curta (<= 1.5 min)'
+    WHEN TIMESTAMP_DIFF(invoiceDue_utc, invoiceCreated_utc, SECOND) <= 900 THEN 'Curta (1.5 - 15 min)'
+    WHEN TIMESTAMP_DIFF(invoiceDue_utc, invoiceCreated_utc, SECOND) <= 3600 THEN 'Média (15 min - 1 hora)'
+    WHEN TIMESTAMP_DIFF(invoiceDue_utc, invoiceCreated_utc, SECOND) <= 86400 THEN 'Longa (1h - 24 horas)'
+    WHEN TIMESTAMP_DIFF(invoiceDue_utc, invoiceCreated_utc, SECOND) <= 7 * 86400 THEN 'Semanal (1 - 7 dias)'
+    ELSE 'Estendida (> 7 dias)'
+  END AS validity_window_tier,
+
+  -- Status e Eventos
+  has_created,
+  is_paid,
+  is_credited,
+  has_overdue_log,
+  is_expired,
+  is_canceled,
+  is_reversed,
+  is_voided,
+  is_updated,
+  total_logs_count,
+
+  -- Classificação de Pagamento
+  CASE
+    WHEN is_paid AND (logCreated_paid_utc > invoiceDue_utc OR has_overdue_log) THEN 'Pago em Atraso (Overdue)'
+    WHEN is_paid THEN 'Pago no Prazo (On-Time)'
+    WHEN is_canceled THEN 'Cancelado'
+    WHEN is_expired THEN 'Expirado (Não Pago)'
+    ELSE 'Pendente / Não Pago'
+  END AS payment_status,
+
+  -- Classificação de Reversão (Total vs Parcial)
+  CASE
+    WHEN NOT is_reversed THEN 'Não Revertido'
+    WHEN is_reversed AND is_voided THEN 'Reversão Total'
+    WHEN is_reversed AND NOT is_voided THEN 'Reversão Parcial'
+    ELSE 'Reversão'
+  END AS reversal_type,
+
+  -- Tempos de Operação e SLAs
+  -- 1. Tempo da criação até o pagamento (em segundos e minutos)
+  TIMESTAMP_DIFF(logCreated_paid_utc, invoiceCreated_utc, SECOND) AS seconds_to_pay,
+  TIMESTAMP_DIFF(logCreated_paid_utc, invoiceCreated_utc, SECOND) / 60.0 AS minutes_to_pay,
+
+  -- 2. Lag de Crédito Bancário: tempo entre o pagamento e a disponibilização do saldo
+  TIMESTAMP_DIFF(logCreated_credited_utc, logCreated_paid_utc, SECOND) AS credit_lag_seconds,
+
+  -- 3. Tempo até o estorno/reversão: tempo do pagamento até a conclusão do estorno
+  TIMESTAMP_DIFF(logCreated_reversed_utc, logCreated_paid_utc, SECOND) AS seconds_to_reverse,
+  TIMESTAMP_DIFF(logCreated_reversed_utc, logCreated_paid_utc, SECOND) / 60.0 AS minutes_to_reverse,
+  TIMESTAMP_DIFF(logCreated_reversed_utc, logCreated_paid_utc, SECOND) / 3600.0 AS hours_to_reverse,
+
+  -- Timestamps dos logs
+  logCreated_paid_utc,
+  logCreated_paid_brt,
+  logCreated_credited_utc,
+  logCreated_reversed_utc,
+  logCreated_voided_utc,
+
+  -- Flags de Qualidade / Anomalias (Pontos Bônus)
+  CASE
+    WHEN NOT has_created THEN 'Fatura Órfã (Sem log created)'
+    WHEN amount_created = 0 THEN 'Valor Zerado na Criação'
+    WHEN EXTRACT(YEAR FROM invoiceDue_utc) > 2022 THEN 'Vencimento Futuro Outlier'
+    ELSE 'Normal'
+  END AS data_anomaly_flag
+
+FROM invoice_aggregates

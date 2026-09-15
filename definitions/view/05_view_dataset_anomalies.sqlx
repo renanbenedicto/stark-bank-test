@@ -1,0 +1,61 @@
+config {
+  database: "rbp-tech",
+  schema: "stark_bank",
+  name: "view_dataset_anomalies",
+  type: "view",
+  description: "Identification and cataloging of dataset anomalies, race conditions, and edge cases (Orphans, Zero Amounts, Outlier Dues, Mismatches)",
+  tags: ["replace_daily"]
+}
+
+WITH invoice_base AS (
+  SELECT * FROM `rbp-tech.stark_bank.view_invoices_analytical`
+)
+
+SELECT
+  invoiceId,
+  amount_created,
+  amount_paid,
+  invoiceCreated_brt,
+  invoiceDue_brt,
+  payment_status,
+  data_anomaly_flag,
+  
+  -- Descrição detalhada do achado e impacto técnico
+  CASE
+    WHEN NOT has_created THEN 
+      '1. Fatura Órfã: Registro possui logs de status (overdue/expired), mas carece de log "created". Ocorre por corte de janela temporal de extração de dados ou falha de ingestão.'
+      
+    WHEN amount_created = 0 AND is_paid THEN 
+      '2. QR Code Dinâmico Aberto: Fatura criada com valor R$ 0,00 e quitada com valor preenchido pelo pagador (ex: doações, recargas ou pagamentos abertos).'
+      
+    WHEN amount_created = 0 AND NOT is_paid THEN 
+      '3. Fatura Zerada Não Concluída: Fatura criada com R$ 0,00 que nunca foi preenchida ou paga.'
+      
+    WHEN EXTRACT(YEAR FROM invoiceDue_utc) > 2022 THEN 
+      '4. Vencimento Outlier / Longo Prazo: Fatura com data de vencimento estendida para até 2026 (validade de até 4 anos), possivelmente usada para cobranças recorrentes permanentes.'
+      
+    WHEN is_paid AND amount_paid != amount_created AND amount_created > 0 THEN 
+      '5. Divergência de Valor Criado vs Pago: Pagamento realizado com valor diferente do nominal emitido (desconto comercial ou acréscimo de juros/multa).'
+      
+    WHEN total_reversals_count > 1 THEN 
+      '6. Múltiplas Reversões: Fatura com mais de uma tentativa/evento de estorno no mesmo ciclo de vida.'
+      
+    ELSE '7. Operação Padrão'
+  END AS anomaly_category,
+  
+  -- Recomendação técnica para engenharia/dados
+  CASE
+    WHEN NOT has_created THEN 'Implementar janela deslizante com buffer de 7 dias retroativos na extração ELT.'
+    WHEN amount_created = 0 THEN 'Tratar faturas abertas com flag booleana is_open_amount no schema.'
+    WHEN EXTRACT(YEAR FROM invoiceDue_utc) > 2022 THEN 'Revisar regra de expiração de QR Codes Pix estáticos no backend.'
+    WHEN is_paid AND amount_paid != amount_created AND amount_created > 0 THEN 'Registrar campos explícitos de desconto (discount) e juros (interest) nos logs.'
+    ELSE 'Monitoramento padrão.'
+  END AS technical_recommendation
+
+FROM invoice_base
+WHERE 
+  NOT has_created 
+  OR amount_created = 0 
+  OR EXTRACT(YEAR FROM invoiceDue_utc) > 2022
+  OR (is_paid AND amount_paid != amount_created AND amount_created > 0)
+  OR total_reversals_count > 1
