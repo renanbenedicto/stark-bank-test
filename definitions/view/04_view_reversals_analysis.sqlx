@@ -42,7 +42,7 @@ WITH reversed_base AS (
       ELSE 100.0
     END AS pct_amount_reversed
 
-  FROM `rbp-tech.stark_bank.view_invoices_analytical`
+  FROM ${ref('view_invoices_analytical')}
   WHERE is_reversed = TRUE
 )
 

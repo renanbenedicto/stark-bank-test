@@ -8,7 +8,7 @@ config {
 }
 
 WITH invoice_base AS (
-  SELECT * FROM `rbp-tech.stark_bank.view_invoices_analytical`
+  SELECT * FROM ${ref('view_invoices_analytical')}
 )
 
 SELECT

@@ -15,7 +15,7 @@ WITH parsed_logs AS (
     -- Converte timestamp do log para o fuso horário oficial de Brasília (BRT / UTC-3)
     DATETIME(SAFE_CAST(logCreated AS TIMESTAMP), "America/Sao_Paulo") AS logCreated_brt
   FROM
-    `rbp-tech.stark_bank.invoice_logs_raw`
+    `rbp-tech.stark_bank.invoices_log`
 ),
 
 hourly_day_metrics AS (

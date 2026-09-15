@@ -23,7 +23,7 @@ WITH raw_logs AS (
     DATETIME(SAFE_CAST(logCreated AS TIMESTAMP), "America/Sao_Paulo") AS logCreated_brt,
     DATETIME(SAFE_CAST(invoiceDue AS TIMESTAMP), "America/Sao_Paulo") AS invoiceDue_brt
   FROM
-    `rbp-tech.stark_bank.invoice_logs_raw`
+    `rbp-tech.stark_bank.invoices_log`
 ),
 
 invoice_aggregates AS (
@@ -143,6 +143,7 @@ SELECT
   is_voided,
   is_updated,
   total_logs_count,
+  total_reversals_count,
 
   -- Classificação de Pagamento
   CASE
@@ -187,6 +188,7 @@ SELECT
     WHEN amount_created = 0 THEN 'Valor Zerado na Criação'
     WHEN EXTRACT(YEAR FROM invoiceDue_utc) > 2022 THEN 'Vencimento Futuro Outlier'
     ELSE 'Normal'
-  END AS data_anomaly_flag
+  END AS data_anomaly_flag,
+
 
 FROM invoice_aggregates
