@@ -4,6 +4,27 @@ config {
   name: "view_monthly_conversion",
   type: "view",
   description: "Analysis of payment conversion rates, overdue payment evolution, and the decisive impact of validity windows and ticket sizes.",
+  columns: {
+    created_year_month: "Mês de criação das faturas no formato AAAA-MM.",
+    validity_window_tier: "Classificação da duração da janela de validade.",
+    amount_bracket: "Faixa de valor da fatura criada.",
+    total_invoices_issued: "Quantidade total de faturas emitidas.",
+    total_amount_issued: "Valor total das faturas emitidas.",
+    total_invoices_paid: "Quantidade total de faturas pagas.",
+    total_amount_paid: "Valor total recebido das faturas pagas.",
+    payment_conversion_rate_pct: "Percentual de faturas emitidas que foram pagas.",
+    invoices_paid_on_time: "Quantidade de faturas pagas dentro do prazo.",
+    on_time_rate_pct_of_paid: "Percentual de pagamentos no prazo entre as faturas pagas.",
+    invoices_paid_overdue: "Quantidade de faturas pagas após o vencimento.",
+    overdue_rate_pct_of_paid: "Percentual de pagamentos em atraso entre as faturas pagas.",
+    overdue_rate_pct_of_total_issued: "Percentual de faturas pagas em atraso sobre o total emitido.",
+    invoices_never_paid: "Quantidade de faturas que não foram pagas.",
+    never_paid_rate_pct: "Percentual de faturas emitidas que não foram pagas.",
+    avg_minutes_to_pay: "Tempo médio entre criação e pagamento, em minutos.",
+    avg_credit_lag_seconds: "Tempo médio entre pagamento e crédito, em segundos.",
+    total_reversals: "Quantidade total de faturas com reversão.",
+    reversal_rate_pct_of_paid: "Percentual de faturas revertidas entre as faturas pagas."
+  },
   tags: ["replace_daily"]
 }
 

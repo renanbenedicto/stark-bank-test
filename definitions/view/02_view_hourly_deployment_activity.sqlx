@@ -4,6 +4,24 @@ config {
   name: "view_hourly_deployment_activity",
   type: "view",
   description: "Analysis of operational activity by hour and day of week (BRT) to determine the optimal low-risk deployment window for engineering.",
+  columns: {
+    day_of_week_num: "Número do dia da semana, de 1 para domingo a 7 para sábado.",
+    day_of_week_name: "Nome do dia da semana em português.",
+    day_type: "Classificação do dia entre dia útil e fim de semana.",
+    hour_brt: "Hora do evento no horário de Brasília.",
+    hour_formatted_brt: "Hora do evento formatada como HH:00 no horário de Brasília.",
+    total_logs: "Quantidade total de eventos registrados na combinação de dia e hora.",
+    created_logs: "Quantidade de eventos de criação na combinação de dia e hora.",
+    paid_logs: "Quantidade de eventos de pagamento na combinação de dia e hora.",
+    credited_logs: "Quantidade de eventos de crédito na combinação de dia e hora.",
+    overdue_logs: "Quantidade de eventos de atraso na combinação de dia e hora.",
+    expired_logs: "Quantidade de eventos de expiração na combinação de dia e hora.",
+    reversed_logs: "Quantidade de eventos de reversão na combinação de dia e hora.",
+    volume_financeiro_pago: "Soma dos valores pagos na combinação de dia e hora.",
+    pct_of_total_traffic: "Percentual dos eventos do período representado pela combinação de dia e hora.",
+    quietest_rank_overall: "Ranking da combinação por volume total de eventos, do menor para o maior.",
+    deployment_recommendation: "Classificação da janela de implantação conforme o nível de tráfego."
+  },
   tags: ["replace_daily"]
 }
 

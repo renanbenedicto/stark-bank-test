@@ -4,6 +4,26 @@ config {
   name: "view_reversals_analysis",
   type: "view",
   description: "Description: Detailed analysis of Pix Invoice reversals, comparing partial vs total reversals, duration from payment, and ticket risk factors.",
+  columns: {
+    invoiceId: "Identificador único da fatura.",
+    created_year_month: "Mês de criação da fatura no formato AAAA-MM.",
+    created_date_brt: "Data de criação da fatura no horário de Brasília.",
+    reversal_type: "Classificação da reversão como total ou parcial.",
+    is_voided: "Indica se a reversão anulou integralmente a fatura.",
+    total_reversals_count: "Quantidade total de eventos de reversão da fatura.",
+    amount_created: "Valor da fatura no evento de criação.",
+    amount_paid: "Valor registrado no evento de pagamento.",
+    amount_reversed: "Valor registrado no evento de reversão.",
+    pct_amount_reversed: "Percentual do valor criado que foi revertido.",
+    amount_bracket: "Faixa de valor da fatura criada.",
+    logCreated_paid_brt: "Data e hora do pagamento no horário de Brasília.",
+    logCreated_reversed_utc: "Data e hora da reversão em UTC.",
+    seconds_to_reverse: "Tempo entre o pagamento e a reversão, em segundos.",
+    minutes_to_reverse: "Tempo entre o pagamento e a reversão, em minutos.",
+    hours_to_reverse: "Tempo entre o pagamento e a reversão, em horas.",
+    reversal_duration_tier: "Classificação da duração até a reversão.",
+    reversal_operational_nature: "Classificação da reversão como automática ou manual."
+  },
   tags: ["replace_daily"]
 }
 

@@ -4,6 +4,17 @@ config {
   name: "view_dataset_anomalies",
   type: "view",
   description: "Identification and cataloging of dataset anomalies, race conditions, and edge cases (Orphans, Zero Amounts, Outlier Dues, Mismatches)",
+  columns: {
+    invoiceId: "Identificador único da fatura.",
+    amount_created: "Valor da fatura no evento de criação.",
+    amount_paid: "Valor registrado no evento de pagamento.",
+    invoiceCreated_brt: "Data e hora de criação da fatura no horário de Brasília.",
+    invoiceDue_brt: "Data e hora de vencimento da fatura no horário de Brasília.",
+    payment_status: "Status consolidado do pagamento.",
+    data_anomaly_flag: "Flag consolidada para anomalias identificadas nos dados.",
+    anomaly_category: "Categoria detalhada da anomalia encontrada.",
+    technical_recommendation: "Recomendação técnica para tratamento ou monitoramento do achado."
+  },
   tags: ["replace_daily"]
 }
 
